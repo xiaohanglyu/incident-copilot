@@ -3,6 +3,7 @@
 
 # Log file
 *.log
+logs/
 
 # BlueJ files
 *.ctxt
@@ -22,3 +23,33 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Claude Code
+.claude/settings.local.json
+.claude/plans/
+CLAUDE.local.md
+
+# IDEs and editors
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Build output
+target/
+
+# Local environment and runtime data
+.env
+.env.*
+var/
+
+# Personal Spring configuration. ./config is a default Spring Boot config
+# location and overrides src/main/resources, so machine-specific values and
+# credentials live here and never reach the repository.
+/config/

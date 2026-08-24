@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: incident-copilot
+
+  ai:
+    openai:
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      api-key: ${OPENAI_API_KEY:}
+      chat:
+        options:
+          model: ${INCIDENT_COPILOT_MODEL:gpt-4o-mini}
+          temperature: ${INCIDENT_COPILOT_TEMPERATURE:0.2}
+
+incident-copilot:
+  max-log-chars: 8000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
