@@ -1,2 +1,2 @@
 # incident-copilot
-Incident analysis copilot with RAG, tool calling, LangGraph workflows, and streaming APIs.
+Production incident analysis copilot built with Spring AI, RAG, tool calling, and pgvector.
