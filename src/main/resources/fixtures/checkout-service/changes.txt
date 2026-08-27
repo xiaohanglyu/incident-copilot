@@ -1,0 +1,17 @@
+Recent changes for checkout-service
+Timestamps are local time (Asia/Shanghai), no offset.
+
+2026-08-24 14:20:00  deploy v2025.8.19 — currently running
+                     PR #1847 "Include line items when loading order history"
+                     OrderRepository.findRecentByCustomer: added a join over order_items
+                     and removed the LIMIT clause
+                     2 files changed · deployed by ci-bot
+                     rollback target: v2025.8.18
+
+2026-08-24 09:12:00  deploy v2025.8.18
+                     PR #1841 "Bump logging config" — configuration only
+
+2026-08-23 17:40:00  deploy v2025.8.17
+                     PR #1836 "Add health probe timeout"
+
+No infrastructure changes and no database schema migrations in the last 7 days.

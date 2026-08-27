@@ -53,3 +53,9 @@ var/
 # location and overrides src/main/resources, so machine-specific values and
 # credentials live here and never reach the repository.
 /config/
+
+# Local-only config (never commit)
+src/main/resources/application-local.yml
+
+# Pre-downloaded embedding model
+models/

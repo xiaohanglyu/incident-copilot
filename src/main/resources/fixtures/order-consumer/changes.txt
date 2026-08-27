@@ -1,0 +1,18 @@
+Recent changes for order-consumer
+Timestamps are RFC3339 with offset.
+
+2026-08-23T23:40:00+08:00  deploy v4.2.0 — currently running
+                           PR #922 "Deduplicate orders seen in the last 24h"
+                           OrderDeduplicator: added an in-memory map keyed by order id,
+                           populated on every message, never evicted
+                           1 file changed · deployed by ci-bot
+                           rollback target: v4.1.7
+
+2026-08-23T11:05:00+08:00  deploy v4.1.7
+                           PR #918 "Update Kafka client 3.6.1 -> 3.6.2" — patch release
+
+2026-08-22T16:20:00+08:00  deploy v4.1.6
+                           PR #915 "Add consumer lag dashboard" — dashboards only
+
+No changes to topic configuration, partition count, consumer group id, or pod memory
+limits in the last 7 days.

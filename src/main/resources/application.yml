@@ -2,6 +2,10 @@ spring:
   application:
     name: incident-copilot
 
+  mvc:
+    problemdetails:
+      enabled: true
+
   ai:
     openai:
       base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
@@ -10,12 +14,16 @@ spring:
         options:
           model: ${INCIDENT_COPILOT_MODEL:gpt-4o-mini}
           temperature: ${INCIDENT_COPILOT_TEMPERATURE:0.2}
+      # Embeddings come from the local transformers model, not from OpenAI.
+      embedding:
+        enabled: false
 
 incident-copilot:
-  max-log-chars: 8000
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
+  knowledge-location: classpath:/knowledge/*.md
+  top-k: 5
+  system-prompt: classpath:/prompts/investigation-system.md
+  # A reported onset is when someone noticed, not when the cause happened. Widen backwards
+  # or the deployment that caused the incident falls outside the window.
+  window-lookback: 1h
+  # Zone for timestamps that carry no offset (checkout-service's Logback output).
+  default-zone: Asia/Shanghai

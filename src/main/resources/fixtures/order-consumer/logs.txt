@@ -1,0 +1,15 @@
+Log matches for order-consumer — 4106 matches, showing the first 8
+zerolog JSON lines, RFC3339 timestamps with offset. Window crosses midnight.
+
+{"level":"warn","time":"2026-08-24T00:06:11+08:00","caller":"consumer/group.go:214","client_id":"order-consumer-2","message":"attempt to heartbeat failed since group is rebalancing"}
+{"level":"error","time":"2026-08-24T00:06:44+08:00","caller":"runtime/panic.go:261","error":"runtime: out of memory: cannot allocate 8388608-byte block","message":"fatal: heap exhausted"}
+{"level":"warn","time":"2026-08-24T00:06:45+08:00","caller":"consumer/group.go:187","client_id":"order-consumer-2","partitions":"orders.v1-0,orders.v1-1","message":"revoke previously assigned partitions"}
+{"level":"info","time":"2026-08-24T00:07:02+08:00","caller":"consumer/group.go:96","generation":41,"message":"successfully joined group"}
+{"level":"error","time":"2026-08-24T00:14:30+08:00","caller":"runtime/panic.go:261","error":"runtime: out of memory: cannot allocate 8388608-byte block","message":"fatal: heap exhausted"}
+{"level":"warn","time":"2026-08-24T00:14:31+08:00","caller":"consumer/group.go:187","client_id":"order-consumer-0","partitions":"orders.v1-2,orders.v1-3","message":"revoke previously assigned partitions"}
+{"level":"error","time":"2026-08-24T00:22:58+08:00","caller":"runtime/panic.go:261","error":"runtime: out of memory: cannot allocate 16777216-byte block","message":"fatal: heap exhausted"}
+{"level":"warn","time":"2026-08-24T00:31:17+08:00","caller":"consumer/group.go:301","client_id":"order-consumer-1","message":"sending LeaveGroup request due to consumer poll timeout expired"}
+
+First out-of-memory in this window: 2026-08-24T00:06:44+08:00.
+Consumer group generation advanced from 37 to 55 during the window.
+No broker connection errors, no deserialization failures, no database errors.

@@ -1,0 +1,18 @@
+Log matches for checkout-service — 12481 matches, showing the first 6
+Logback pattern, local time (Asia/Shanghai), no offset.
+
+2026-08-24 14:26:03.481 WARN  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Connection
+        is not available, request timed out after 30000ms
+2026-08-24 14:26:03.502 ERROR c.e.checkout.OrderService - Failed to load order history:
+        java.sql.SQLTimeoutException
+2026-08-24 14:26:41.117 WARN  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Connection
+        is not available, request timed out after 30000ms
+2026-08-24 14:28:12.093 ERROR c.e.checkout.web.CheckoutController - 500 on POST /checkout:
+        java.sql.SQLTimeoutException
+2026-08-24 14:31:55.640 WARN  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Connection
+        is not available, request timed out after 30000ms
+2026-08-24 14:35:02.884 ERROR c.e.checkout.OrderService - Failed to load order history:
+        java.sql.SQLTimeoutException
+
+First occurrence of any HikariPool timeout in this window: 2026-08-24 14:26:03.
+No OutOfMemoryError, no GC warnings, no upstream connection failures.

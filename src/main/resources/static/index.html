@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>incident-copilot</title>
+<style>
+  :root {
+    --bg: #fbfbfa;
+    --panel: #ffffff;
+    --border: #e4e4e1;
+    --text: #1c1c1a;
+    --muted: #6b6b66;
+    --accent: #2f6f4e;
+    --accent-soft: #eaf3ee;
+    --warn: #8a5a1c;
+    --warn-soft: #f8f0e4;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161715;
+      --panel: #1e201d;
+      --border: #32352f;
+      --text: #e8e8e4;
+      --muted: #9a9a93;
+      --accent: #7fbf9a;
+      --accent-soft: #222e27;
+      --warn: #d5a25e;
+      --warn-soft: #2e2619;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  header { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 32px; }
+  header div { flex: 1; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+  #subtitle { margin: 0; color: var(--muted); font-size: 14px; }
+
+  .lang { flex: none; display: flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .lang button {
+    padding: 5px 11px; font-size: 12px; font-family: inherit; font-weight: 500;
+    background: transparent; color: var(--muted); border: 0; cursor: pointer;
+  }
+  .lang button[aria-pressed=true] { background: var(--accent); color: #fff; }
+
+  form { margin-bottom: 14px; }
+  textarea, input[type=text], input[type=datetime-local] {
+    width: 100%; padding: 11px 14px; font-size: 15px; font-family: inherit;
+    color: var(--text); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  textarea { resize: vertical; line-height: 1.5; }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  .optional { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .optional label { display: flex; flex-direction: column; gap: 4px; flex: 0 1 auto; }
+  .optional label.grow { flex: 1 1 220px; }
+  .optional span { font-size: 12px; color: var(--muted); }
+  .optional input { font-size: 13px; padding: 8px 11px; }
+
+  .actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+  #optionalHint { flex: 1; font-size: 12px; color: var(--muted); }
+  #submit {
+    flex: none; padding: 11px 20px; font-size: 15px; font-family: inherit; font-weight: 500;
+    color: #fff; background: var(--accent); border: 0; border-radius: 8px; cursor: pointer;
+  }
+  #submit:disabled { opacity: 0.5; cursor: default; }
+
+  .samples { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 36px; }
+  .samples button {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    padding: 5px 11px; font-size: 13px; font-family: inherit; border-radius: 999px;
+    cursor: pointer;
+  }
+  .samples button:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+  .samples button:disabled { opacity: 0.5; cursor: default; }
+
+  #status { color: var(--muted); font-size: 14px; }
+  #status .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); margin-right: 8px; animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 22px 24px; margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 12px;
+  }
+  .cause { font-size: 16px; line-height: 1.55; margin: 0; }
+  .confidence {
+    display: inline-block; margin-top: 14px; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-family: var(--mono);
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .confidence.low { background: var(--warn-soft); color: var(--warn); }
+
+  ul { margin: 0; padding: 0; list-style: none; }
+  ul.plain li { padding: 6px 0 6px 18px; position: relative; }
+  ul.plain li::before {
+    content: ""; position: absolute; left: 2px; top: 15px;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--muted);
+  }
+  ul.evidence li { display: flex; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); }
+  ul.evidence li:first-child { border-top: 0; padding-top: 0; }
+  .src {
+    flex: none; font-family: var(--mono); font-size: 11px; padding: 2px 8px;
+    border-radius: 5px; background: var(--accent-soft); color: var(--accent);
+    height: fit-content; margin-top: 3px;
+  }
+  .src.knowledge { background: var(--warn-soft); color: var(--warn); }
+
+  .trace { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .trace span:not(:last-child)::after { content: " → "; opacity: 0.55; }
+
+  .hint { margin: 8px 0 14px; color: var(--muted); font-size: 13px; }
+  details {
+    border-top: 1px solid var(--border); padding: 8px 0;
+    font-family: var(--mono); font-size: 12px;
+  }
+  details summary { cursor: pointer; color: var(--text); }
+  details summary em { color: var(--muted); font-style: normal; }
+  details pre {
+    margin: 10px 0 4px; padding: 12px; overflow-x: auto; line-height: 1.5;
+    background: var(--bg); border-radius: 6px; color: var(--muted);
+  }
+
+  .error {
+    border-color: var(--warn); color: var(--warn);
+    font-family: var(--mono); font-size: 13px; white-space: pre-wrap; word-break: break-word;
+  }
+  #footer { margin-top: 40px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>incident-copilot</h1>
+      <p id="subtitle"></p>
+    </div>
+    <div class="lang">
+      <button type="button" data-lang="en">EN</button>
+      <button type="button" data-lang="zh">中文</button>
+    </div>
+  </header>
+
+  <form id="form">
+    <textarea id="query" rows="3" spellcheck="false"></textarea>
+    <div class="optional">
+      <label><span id="lbl-since"></span><input type="datetime-local" id="since"></label>
+      <label><span id="lbl-until"></span><input type="datetime-local" id="until"></label>
+      <label class="grow"><span id="lbl-services"></span>
+        <input type="text" id="services" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <div class="actions">
+      <span id="optionalHint"></span>
+      <button type="submit" id="submit"></button>
+    </div>
+  </form>
+
+  <div class="samples" id="samples"></div>
+
+  <div id="status"></div>
+  <div id="report"></div>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+  const I18N = {
+    en: {
+      subtitle: 'Describe a production symptom. The agent pulls metrics, logs and recent ' +
+                'changes, consults the runbooks, and proposes a cause for you to review.',
+      placeholder: 'checkout-service response time suddenly spiked',
+      submit: 'Investigate',
+      since: 'Symptom noticed from', until: 'until', servicesLabel: 'Services mentioned',
+      servicesHint: 'comma separated',
+      optionalHint: 'All three are optional. Left empty, the agent works it out itself.',
+      samples: [
+        { label: 'checkout latency', query: 'checkout-service response time suddenly spiked',
+          since: '2026-08-24T14:25' },
+        { label: 'consumer lag (crosses midnight)', query: 'Why is the order consumer lagging?',
+          since: '2026-08-24T00:15' },
+        { label: 'no service named', query: 'kafka message backlog, what is going on?' }
+      ],
+      busy: seconds => `Investigating… ${seconds}s`,
+      done: seconds => `Completed in ${seconds}s`,
+      cause: 'Most likely cause',
+      confidence: pct => `confidence ${pct}%`,
+      evidence: 'Evidence',
+      verification: 'Suggested verification',
+      mitigation: 'Suggested mitigation',
+      trail: 'Investigation trail',
+      trailHint: 'Recorded server-side as the tools ran — not the model’s account of itself.',
+      knowledge: 'Retrieved knowledge',
+      footer: 'Read-only tools. Every action is a proposal — nothing is executed.'
+    },
+    zh: {
+      subtitle: '描述一个线上现象。Agent 会自行拉取指标、日志和最近变更，检索 runbook，' +
+                '给出一份待你审阅的判断。',
+      placeholder: 'checkout-service 响应时间突然变高',
+      submit: '开始调查',
+      since: '症状被注意到的时间', until: '至', servicesLabel: '涉及服务',
+      servicesHint: '逗号分隔',
+      optionalHint: '三项均可留空。留空时由 Agent 自己判断。',
+      samples: [
+        { label: 'checkout 变慢', query: 'checkout-service 响应时间突然变高',
+          since: '2026-08-24T14:25' },
+        { label: '消费积压（跨午夜）', query: 'order-consumer 消息堆积严重，怎么回事',
+          since: '2026-08-24T00:15' },
+        { label: '不指名服务', query: 'kafka 消息堆积怎么回事' }
+      ],
+      busy: seconds => `调查中… ${seconds} 秒`,
+      done: seconds => `耗时 ${seconds} 秒`,
+      cause: '最可能的原因',
+      confidence: pct => `置信度 ${pct}%`,
+      evidence: '证据',
+      verification: '验证建议',
+      mitigation: '缓解建议',
+      trail: '调查过程',
+      trailHint: '由服务端在工具执行时记录，不是模型对自己行为的复述。',
+      knowledge: '检索到的知识',
+      footer: '所有工具只读。任何动作都只是建议，不会被执行。'
+    }
+  };
+
+  const form = document.getElementById('form');
+  const queryInput = document.getElementById('query');
+  const submitBtn = document.getElementById('submit');
+  const statusEl = document.getElementById('status');
+  const reportEl = document.getElementById('report');
+  const samplesEl = document.getElementById('samples');
+  const sinceInput = document.getElementById('since');
+  const untilInput = document.getElementById('until');
+  const servicesInput = document.getElementById('services');
+
+  let lang = localStorage.getItem('lang')
+    || (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  if (!I18N[lang]) lang = 'en';
+  let lastReport = null;
+
+  document.querySelectorAll('.lang button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      lang = btn.dataset.lang;
+      localStorage.setItem('lang', lang);
+      applyLang();
+    });
+  });
+
+  function applyLang() {
+    const t = I18N[lang];
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    document.getElementById('subtitle').textContent = t.subtitle;
+    document.getElementById('footer').textContent = t.footer;
+    queryInput.placeholder = t.placeholder;
+    submitBtn.textContent = t.submit;
+    document.getElementById('lbl-since').textContent = t.since;
+    document.getElementById('lbl-until').textContent = t.until;
+    document.getElementById('lbl-services').textContent = t.servicesLabel;
+    document.getElementById('optionalHint').textContent = t.optionalHint;
+    servicesInput.placeholder = t.servicesHint;
+
+    document.querySelectorAll('.lang button').forEach(btn =>
+      btn.setAttribute('aria-pressed', String(btn.dataset.lang === lang)));
+
+    samplesEl.innerHTML = '';
+    t.samples.forEach(sample => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = sample.label;
+      btn.addEventListener('click', () => {
+        // Fixture dates are fixed, so a sample carries its own window — nobody can guess
+        // which afternoon the sample incident happened on.
+        queryInput.value = sample.query;
+        sinceInput.value = sample.since ?? '';
+        untilInput.value = sample.until ?? '';
+        servicesInput.value = sample.services ?? '';
+        form.requestSubmit();
+      });
+      samplesEl.appendChild(btn);
+    });
+
+    // Relabel the existing report rather than dropping it — the body stays in whatever
+    // language the model answered in, which is the language the question was asked in.
+    if (lastReport) render(lastReport.result, lastReport.seconds);
+  }
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const t = I18N[lang];
+    const query = queryInput.value.trim() || queryInput.placeholder;
+    setBusy(true);
+    reportEl.innerHTML = '';
+    lastReport = null;
+
+    const started = Date.now();
+    const elapsed = () => Math.round((Date.now() - started) / 1000);
+    const timer = setInterval(() => {
+      statusEl.innerHTML = `<span class="dot"></span>${escape(I18N[lang].busy(elapsed()))}`;
+    }, 250);
+
+    try {
+      const response = await fetch('/api/investigate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPayload(query))
+      });
+      const body = await response.text();
+      if (!response.ok) throw new Error(`HTTP ${response.status}\n\n${body}`);
+      lastReport = { result: JSON.parse(body), seconds: elapsed() };
+      render(lastReport.result, lastReport.seconds);
+    } catch (error) {
+      reportEl.innerHTML = '<div class="card error"></div>';
+      reportEl.firstChild.textContent = error.message;
+    } finally {
+      clearInterval(timer);
+      if (!lastReport) statusEl.textContent = '';
+      setBusy(false);
+    }
+  });
+
+  function buildPayload(query) {
+    const payload = { query };
+    // datetime-local has no offset; the server reads a bare local time in its own zone,
+    // so send one explicitly rather than letting the two sides disagree silently.
+    const offset = localOffset();
+    if (sinceInput.value) payload.since = sinceInput.value + ':00' + offset;
+    if (untilInput.value) payload.until = untilInput.value + ':00' + offset;
+    const services = servicesInput.value.split(',').map(s => s.trim()).filter(Boolean);
+    if (services.length) payload.services = services;
+    return payload;
+  }
+
+  function localOffset() {
+    const minutes = -new Date().getTimezoneOffset();
+    const sign = minutes < 0 ? '-' : '+';
+    const pad = n => String(Math.floor(Math.abs(n))).padStart(2, '0');
+    return sign + pad(minutes / 60) + ':' + pad(minutes % 60);
+  }
+
+  function setBusy(busy) {
+    submitBtn.disabled = busy;
+    samplesEl.querySelectorAll('button').forEach(b => b.disabled = busy);
+    [queryInput, sinceInput, untilInput, servicesInput].forEach(el => el.disabled = busy);
+  }
+
+  function render(result, seconds) {
+    const t = I18N[lang];
+    const report = result.report ?? {};
+    const pct = Math.round((report.confidence ?? 0) * 100);
+    const frag = [];
+
+    frag.push(card(t.cause, `
+      <p class="cause">${escape(report.mostLikelyCause)}</p>
+      <span class="confidence ${pct < 60 ? 'low' : ''}">${escape(t.confidence(pct))}</span>`));
+
+    if (report.evidence?.length) {
+      frag.push(card(t.evidence, `<ul class="evidence">${report.evidence.map(item => `
+        <li><span class="src ${item.source === 'knowledge' ? 'knowledge' : ''}">${escape(item.source)}</span>
+            <span>${escape(item.detail)}</span></li>`).join('')}</ul>`));
+    }
+    if (report.suggestedVerification?.length) {
+      frag.push(card(t.verification, list(report.suggestedVerification)));
+    }
+    if (report.suggestedMitigation?.length) {
+      frag.push(card(t.mitigation, list(report.suggestedMitigation)));
+    }
+    if (result.toolCalls?.length) {
+      frag.push(card(t.trail, `
+        <div class="trace">${result.toolCalls.map(c => `<span>${escape(c.tool)}</span>`).join('')}</div>
+        <p class="hint">${escape(t.trailHint)}</p>
+        ${result.toolCalls.map(c => `
+          <details>
+            <summary>${escape(c.tool)}(${escape(c.arguments)}) <em>${c.millis}ms</em></summary>
+            <pre>${escape(c.result)}</pre>
+          </details>`).join('')}`));
+    }
+    if (result.retrievedKnowledge?.length) {
+      frag.push(card(t.knowledge, result.retrievedKnowledge.map(k => `
+        <details>
+          <summary>${escape(k.source)}</summary>
+          <pre>${escape(k.content)}</pre>
+        </details>`).join('')));
+    }
+
+    reportEl.innerHTML = frag.join('');
+    statusEl.textContent = t.done(seconds);
+  }
+
+  const card = (title, inner) => `<div class="card"><h2>${escape(title)}</h2>${inner}</div>`;
+  const list = items => `<ul class="plain">${items.map(i => `<li>${escape(i)}</li>`).join('')}</ul>`;
+  const escape = value => String(value ?? '').replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  applyLang();
+</script>
+</body>
+</html>

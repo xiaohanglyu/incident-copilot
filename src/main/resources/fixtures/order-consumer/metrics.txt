@@ -1,0 +1,18 @@
+Metrics for order-consumer, 10-minute buckets
+Kafka topic orders.v1, 6 partitions, 3 consumer pods
+Timestamps are RFC3339 with offset. Note this window crosses midnight.
+
+time                       consumer_lag  msgs/sec  heap_used%  cpu%  pod_restarts  rebalances
+2026-08-23T23:30:00+08:00  180           1450      48          41    0             0
+2026-08-23T23:40:00+08:00  210           1440      57          42    0             0
+2026-08-23T23:50:00+08:00  340           1390      74          43    0             0
+2026-08-24T00:00:00+08:00  2100          980       91          44    0             0
+2026-08-24T00:10:00+08:00  38000         610       93          2     1             4
+2026-08-24T00:20:00+08:00  240000        410       94          3     3             9
+2026-08-24T00:30:00+08:00  760000        280       95          4     5             14
+2026-08-24T00:40:00+08:00  1210000       250       93          4     7             18
+
+Heap usage climbs steadily from 23:40 and never returns to baseline between restarts.
+CPU stays low throughout — the pods are not doing more work, they are doing less.
+Broker-side metrics are normal: no under-replicated partitions, produce rate flat at
+1440 msgs/sec across the whole window.
