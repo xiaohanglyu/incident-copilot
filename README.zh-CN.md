@@ -33,7 +33,7 @@ User: "kafka 消息堆积怎么回事"
 
 ## 示例
 
-打开 `http://localhost:8080` 有一个简单的页面，中英双语，报告下方可以展开完整的调查过程。
+打开 `http://localhost:8080` 是前端页面，中英双语；每次工具返回就实时出现在调查过程里，报告下方可以展开查看。
 也可以直接调接口：
 
 ```bash
@@ -48,6 +48,11 @@ curl -X POST localhost:8080/api/investigate \
 
 只有 `query` 是必填的。`since` / `until` 和 `services` 本来就写在工单上——它们作为线索传入，
 不作为过滤条件。不填的话，Agent 会自己判断该查哪个服务、该拉多宽的时间窗。
+
+`POST /api/investigate/stream` 接受同样的请求体，以 Server-Sent Events 返回，页面用的是它：
+先一次 `knowledge`，之后每个工具返回时推一条 `tool-call`，最后 `result` 带上完整响应——
+失败则是 `error`。`result` 里的调查过程才是准的，`tool-call` 的意义在于让人看着调查发生。
+断开连接即取消本次调查。
 
 ```json
 {
@@ -117,7 +122,9 @@ Pod 内存上限而非 `GOMEMLIMIT`"。格式读对、单位读错，是一种�
 | OpenAI 兼容对话接口 | 任意网关均可，通过 URL 与 key 配置 |
 | all-MiniLM-L6-v2 / ONNX Runtime | 进程内计算 embedding，384 维 |
 | SimpleVectorStore | 内存索引，启动时重建 |
-| Maven | 构建与依赖管理 |
+| React 19 · TypeScript · Vite | 前端页面，strict 模式，构建进 jar |
+| Vitest · Playwright | 单元测试与端到端测试 |
+| Maven | 构建与依赖管理，含前端构建 |
 
 ## 架构
 
@@ -135,7 +142,15 @@ resources
 ├── knowledge/       runbook —— 某种现象组合意味着什么，跨服务通用（RAG）
 ├── fixtures/        每个服务一个目录：样例数据，外加 profile.md ——
 │                    本服务的字段含义（按名字查表，不走检索）
-└── static/          前端页面
+└── static/          构建产物 —— 由 `web/` 生成，不手工修改
+```
+
+```
+web                  React + TypeScript 前端
+├── src/api/         SSE 客户端，以及与 Java record 对应的类型
+├── src/components/  展示组件
+├── src/*.ts         reducer、请求构造、i18n —— 逻辑部分，有单元测试
+└── e2e/             针对构建产物的 Playwright 测试
 ```
 
 依赖单向流动：`investigation → { tools, knowledge } → shared`。适配层不反向依赖编排层，
@@ -150,7 +165,23 @@ export OPENAI_API_KEY=sk-...
 mvn spring-boot:run
 ```
 
+`mvn` 会一并构建前端：它在 `target/` 下装一份独立的 Node，执行 `npm ci && npm run build`，
+所以只需要 JDK 25 和 Maven。只改后端时可以加 `-Dskip.installnodenpm -Dskip.npm` 跳过。
+
 首次启动会从 GitHub 下载 embedding 模型（约 90 MB）并缓存到本地，之后启动不再等待。
+
+### 开发前端
+
+```bash
+mvn spring-boot:run                     # 后端跑在 :8080
+cd web && npm install && npm run dev    # 页面跑在 :5173，/api 代理到 :8080
+```
+
+```bash
+cd web
+npm test          # Vitest：SSE 解析、reducer、请求构造、页面行为
+npm run test:e2e  # Playwright：Chromium 里跑构建产物，模型响应为预置数据
+```
 
 ### 受限网络
 

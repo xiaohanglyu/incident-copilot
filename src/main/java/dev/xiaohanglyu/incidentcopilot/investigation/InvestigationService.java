@@ -57,17 +57,28 @@ public class InvestigationService {
     }
 
     public InvestigationResult investigate(InvestigationRequest request) {
+        return investigate(request, InvestigationListener.NONE);
+    }
+
+    /**
+     * Same investigation, reporting each step to {@code listener} as it happens. The
+     * listener runs on the investigating thread, so it should hand off rather than block.
+     */
+    public InvestigationResult investigate(InvestigationRequest request,
+                                           InvestigationListener listener) {
         List<KnowledgeSnippet> snippets = retrieve(request.query());
+        listener.onKnowledge(snippets);
 
-        Report report = chatClient.prompt()
-                .system(properties.systemPrompt())
-                .user(buildUserPrompt(request, snippets))
-                .tools(serviceCatalogTool, serviceProfileTool,
-                        metricsTool, logSearchTool, changeHistoryTool)
-                .call()
-                .entity(Report.class);
+        ToolCallLog.Recorded<Report> recorded = toolCallLog.record(listener::onToolCall,
+                () -> chatClient.prompt()
+                        .system(properties.systemPrompt())
+                        .user(buildUserPrompt(request, snippets))
+                        .tools(serviceCatalogTool, serviceProfileTool,
+                                metricsTool, logSearchTool, changeHistoryTool)
+                        .call()
+                        .entity(Report.class));
 
-        return new InvestigationResult(report, toolCallLog.calls(), snippets);
+        return new InvestigationResult(recorded.value(), recorded.calls(), snippets);
     }
 
     /** Retrieval happens here, not in an advisor, so the hits can be cited in the report. */
