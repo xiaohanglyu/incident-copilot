@@ -2,302 +2,108 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-An incident investigator built on Spring AI. Describe a production symptom in one
-sentence; the agent calls read-only diagnostic tools, consults a local knowledge base,
-and returns a structured hypothesis for a human to review.
+incident-copilot is an AI incident investigation assistant that helps on-call engineers
+diagnose unfamiliar systems faster, with the goal of reducing mean time to recovery
+(MTTR). It queries metrics, logs, and recent changes, consults runbooks, and returns
+likely causes with evidence and suggested next steps. Engineers decide what to do next.
 
-> v1 is a self-contained demo. The diagnostic tools serve fixed sample data from
-> `resources/fixtures`, so the whole thing runs with nothing but an API key — no
-> database, no external services.
+## Why this project
 
-## What it does
+With many services and teams sharing on-call duties, engineers may be paged for systems
+they don't know well. Before diagnosing the incident, they need to understand the service,
+find its dashboards and logs, check recent changes, and consult experienced colleagues.
+Meanwhile, the business remains affected.
 
-The agent does not answer from the prompt alone. It investigates first:
+This project brings scattered data and operational knowledge into the investigation to:
 
-```
-User: "kafka message backlog, what is going on?"
-  │
-  ├─ listServices()       checkout-service, order-consumer
-  ├─ getMetrics()         lag 180 → 1.2M · heap 48% → 95% · CPU falling
-  ├─ searchLogs()         OutOfMemoryError · consumer group rebalancing
-  ├─ getRecentChanges()   deploy v4.2.0 added an unevicted in-memory map
-  └─ knowledge base       runbook: Kafka consumer lag
-  │
-  ▼
-Report  ─  most likely cause · evidence · verification · mitigation
-  │
-  ▼
-Human review
-```
+- **Shorten diagnosis time**: reduce time spent finding and comparing information across systems, helping engineers identify a supported cause and restore service sooner.
+- **Reduce dependence on a few experts**: give engineers service context and investigation guidance without always needing a senior colleague's help.
+- **Reuse operational knowledge**: make existing runbooks available during investigations, with resolved incidents feeding back into the knowledge base in the future.
 
-The question named no service, so the agent asked what it could look at, picked the one
-matching the symptom, and investigated that. Every tool is read-only, and the report is a
-proposal — nothing is executed on its own.
+Enterprise use also requires controls over production changes, auditable investigation
+records, and protection of sensitive data. These needs inform the project's design:
+read-only tools, human review, recorded investigations, and support for local models.
 
-## Example
+The initial focus is on deployment and configuration issues, and resource exhaustion in
+backend services, such as slow APIs, exhausted connection pools, and Kafka consumer lag.
+Infrastructure diagnosis, automatic remediation, and formal postmortem generation
+are outside the current scope.
 
-Open `http://localhost:8080` for the web UI — English and Chinese, with the investigation
-trail appearing live as each tool returns and expandable under the report. Or call the
-endpoint directly:
+## Investigation flow
 
-```bash
-curl -X POST localhost:8080/api/investigate \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "query": "checkout-service response time suddenly spiked",
-        "since": "2026-08-24T14:25:00+08:00",
-        "services": ["checkout-service"]
-      }'
+```text
+Describe the symptom
+    ↓
+Look up services and identify where to investigate
+    ↓
+Gather metrics, logs, and recent changes; retrieve relevant runbooks
+    ↓
+Analyze the timeline and failure signals for likely causes
+    ↓
+Return causes, evidence, verification steps, and mitigation suggestions
+    ↓
+An engineer reviews the findings and decides what to do
 ```
 
-Only `query` is required. `since` / `until` and `services` are what a ticket carries
-anyway — supplied as leads, never as filters. Left out, the agent works out which service
-to look at and how wide a window to pull.
+For example, ask “Why are Kafka messages backing up?” In the bundled sample scenario,
+the investigation can find:
 
-`POST /api/investigate/stream` takes the same body and answers with Server-Sent Events,
-which is what the page uses: `knowledge` once, then a `tool-call` as each tool returns,
-then `result` carrying the whole response above — or `error`. The trail in `result` is the
-authoritative one; the `tool-call` events exist so a reader can watch the investigation
-happen. Closing the connection cancels the run.
+- **Metrics**: consumer lag grows, memory usage rises, and pods restart repeatedly.
+- **Logs**: out-of-memory errors and consumer group rebalances.
+- **Deployment history**: the new version introduced an in-memory cache with no eviction.
 
-```json
-{
-  "report": {
-    "mostLikelyCause": "Connection pool exhaustion caused by v2025.8.19, which added a join
-                        and removed the LIMIT clause in OrderRepository.findRecentByCustomer.",
-    "confidence": 0.95,
-    "evidence": [
-      { "source": "getMetrics",       "detail": "p99 rose 118ms → 3.4s and the pool hit 50/50 from 14:25, CPU and memory flat" },
-      { "source": "searchLogs",       "detail": "HikariPool connection timeouts start at 14:26:03" },
-      { "source": "getRecentChanges", "detail": "Deploy at 14:20 modified OrderRepository.findRecentByCustomer" },
-      { "source": "knowledge",        "detail": "Runbook: rising latency with flat CPU and a saturated pool is pool exhaustion" }
-    ],
-    "suggestedVerification": ["Check query latency for the modified SQL"],
-    "suggestedMitigation": ["Roll back checkout-service to v2025.8.18"]
-  },
-  "toolCalls": [
-    { "tool": "describeService", "arguments": "service=checkout-service", "millis": 1, "result": "…" },
-    { "tool": "getMetrics", "arguments": "service=checkout-service, from=2026-08-24T14:00:00+08:00, to=2026-08-24T15:00:00+08:00", "millis": 3, "result": "…" },
-    { "tool": "searchLogs", "arguments": "service=checkout-service, keyword=Connection is not available, from=…", "millis": 1, "result": "…" },
-    { "tool": "getRecentChanges", "arguments": "service=checkout-service", "millis": 1, "result": "…" }
-  ],
-  "retrievedKnowledge": [
-    { "source": "connection-pool-exhaustion.md", "content": "…" }
-  ]
-}
-```
+These clues point to a failure chain: growing cache → memory exhaustion → consumer
+restarts → message backlog. The report uses that evidence to explain the likely cause
+and suggest verification steps and mitigations such as a rollback. The web UI displays
+tool results during the investigation so engineers can check the basis for its findings.
 
-`report` is what the model concluded. `toolCalls` and `retrievedKnowledge` are what
-actually happened, recorded server-side while the tools ran — so a reader can check the
-conclusion against the data instead of taking the model's word for its own steps.
+## Design constraints and current status
 
-Note the first two calls. The agent looked up what checkout-service's fields mean before
-reading them, then pulled a window starting at 14:00 — earlier than the 14:25 onset it
-was given, because the cause of an incident precedes the symptom.
+- **Read-only tools**: tools retrieve data; they do not roll back deployments, restart services, or make other production changes. Engineers review and carry out any suggested actions.
+- **Human review**: an explicit approval workflow for recommendations is planned but not implemented.
+- **Investigation records**: the backend records tool calls and results so engineers can check the evidence. Persistent audit records are not yet implemented.
+- **Data protection**: the local setup uses Gemma through an OpenAI-compatible endpoint. Data masking is not implemented. Whether data leaves your environment depends on model deployment and endpoint configuration.
 
-## How it works
-
-Three mechanisms, one request:
-
-| | |
-|---|---|
-| **Tool calling** | The model decides which tools to call, with what arguments, and in what order. Tools are plain Spring beans annotated with `@Tool`. It looks up what a service's fields *mean* before reading them, and narrows or widens the time window as the investigation goes. |
-| **Retrieval** | Runbooks are embedded into a vector store at startup and retrieved explicitly rather than through an advisor, which keeps the matched documents in hand so they can be cited. |
-| **Structured output** | The report is bound to a Java record, so the response shape is stable across runs. |
-
-Four behaviours matter more than they look.
-
-A tool asked about a service it has no data for **says so and lists what it does have**,
-instead of returning another service's data — otherwise the model learns that whatever
-comes back must be relevant and will bend it to fit the question.
-
-**A requested time window is widened backwards** before any filtering. A reported onset is
-when a human noticed; the cause is earlier. Report the checkout incident as starting at
-14:25 and a literal reading hides the 14:20 deployment that caused it.
-
-**Field semantics come from a tool, not from inference.** Log format the model handles
-unaided — JSON and Logback text are both in its training data many times over. What it
-cannot know is that a timestamp carries no offset and is Asia/Shanghai, or that
-`heap_used%` is a share of the pod limit. Reading the format correctly and the unit
-wrongly is a failure with no outward sign, so `describeService` is a tool call rather
-than a hope.
-
-**The steps are recorded as the tools run**, not reported by the model afterwards — a
-self-reported trail is worth exactly as much as the rest of the model's output.
-
-## Tech stack
-
-| | |
-|---|---|
-| Java 25 · Spring Boot 4.1 | Records for the domain model, virtual threads available for tool fan-out |
-| Spring AI 2.0 | Tool calling, structured output binding, vector store abstraction |
-| OpenAI-compatible chat API | Any gateway works — configured by URL and key |
-| all-MiniLM-L6-v2 via ONNX Runtime | Embeddings computed in-process, 384 dimensions |
-| SimpleVectorStore | In-memory index, rebuilt at startup |
-| React 19 · TypeScript · Vite | Web UI, strict mode, built into the jar |
-| Vitest · Playwright | Unit and end-to-end tests across the stack |
-| Maven | Build and dependency management, frontend build included |
-
-## Architecture
-
-```
-dev.xiaohanglyu.incidentcopilot
-├── investigation    orchestration and domain model — Report, Evidence, InvestigationResult
-├── tools            adapter layer, one class per data source, plus the call log
-├── knowledge        embedding, indexing, retrieval
-└── shared           configuration
-```
-
-```
-resources
-├── prompts/         the system prompt — editable without touching Java
-├── knowledge/       runbooks — what a pattern means, across services (RAG)
-├── fixtures/        per service: sample telemetry, plus profile.md — what this
-│                    service's fields mean (looked up by name, not retrieved)
-└── static/          the built web UI — generated by `web/`, not edited by hand
-```
-
-```
-web                  React + TypeScript frontend
-├── src/api/         the SSE client and the types mirroring the Java records
-├── src/components/  presentational components
-├── src/*.ts         reducer, request building, i18n — the logic, unit-tested
-└── e2e/             Playwright tests against the built bundle
-```
-
-Dependencies run one way: `investigation → { tools, knowledge } → shared`. The adapter
-layer never depends on the orchestrator, so adding a data source means adding a file
-rather than editing one.
+The demo currently uses two bundled scenarios: connection pool exhaustion and Kafka
+consumer lag. It does not yet connect to live monitoring systems, and improvements in
+diagnosis time or MTTR have not been measured. Approval, audit, and data protection
+features remain development goals, rather than a claim of enterprise compliance.
+See the [roadmap](docs/en/roadmap.md) for planned work.
 
 ## Quick start
 
-Requires JDK 25, Maven, and an API key for any OpenAI-compatible endpoint.
+You need JDK 25, Maven, and a model server that supports tool calling. The local
+configuration uses Gemma (`gemma-4-26b-q4_k_m.gguf`).
 
 ```bash
-export OPENAI_API_KEY=sk-...
-mvn spring-boot:run
+mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-`mvn` builds the frontend too: it installs a private Node into `target/` and runs
-`npm ci && npm run build`, so JDK 25 and Maven are all you need. Add
-`-Dskip.installnodenpm -Dskip.npm` to skip that when only the backend changed.
+Before running, configure the model endpoint, model name, and credentials in
+`src/main/resources/application-local.yml`. This machine-specific file is gitignored;
+a fresh clone needs its own copy. See [configuration instructions](docs/en/development.md).
 
-On first run the embedding model (~90 MB) is downloaded from GitHub and cached locally.
-Later runs start straight away.
+Open [localhost:8080](http://localhost:8080) and try “Why are Kafka messages backing up?”
 
-### Working on the frontend
+Maven installs Node and builds the frontend automatically. The first run also downloads
+the embedding model. Diagnostic data comes from `src/main/resources/fixtures/`, so you
+don't need a database or monitoring service. Model requests go to the configured chat API.
 
-```bash
-mvn spring-boot:run                     # backend on :8080
-cd web && npm install && npm run dev    # page on :5173, /api proxied to :8080
-```
+The model server uses the OpenAI-compatible protocol; it does not require an OpenAI
+model. When running without the `local` profile, configure the service with
+`OPENAI_BASE_URL`, `INCIDENT_COPILOT_MODEL`, and `OPENAI_API_KEY`. See
+[development and configuration](docs/en/development.md) for details and restricted-network setup.
 
-```bash
-cd web
-npm test          # Vitest: the SSE parser, the reducer, request building, the page
-npm run test:e2e  # Playwright: the built bundle in Chromium, model responses stubbed
-```
+## Documentation
 
-### Restricted networks
-
-If `raw.githubusercontent.com` is unreachable — a proxy, a firewall, or TLS
-interception — startup fails while loading the embedding model. Fetch the two files
-once from Hugging Face instead:
-
-```bash
-mkdir -p models
-curl -Lo models/tokenizer.json \
-  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json
-curl -Lo models/model.onnx \
-  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx
-```
-
-Then point the application at them:
-
-```yaml
-spring:
-  ai:
-    embedding:
-      transformer:
-        onnx:
-          model-uri: file:./models/model.onnx
-        tokenizer:
-          uri: file:./models/tokenizer.json
-```
-
-`models/` is gitignored. With this in place startup needs no network at all, and the
-only remaining outbound traffic is the chat API.
-
-## Configuration
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `OPENAI_API_KEY` | — | Required. |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Point at any compatible gateway. |
-| `INCIDENT_COPILOT_MODEL` | `gpt-4o-mini` | Chat model. Must support tool calling. |
-| `INCIDENT_COPILOT_TEMPERATURE` | `0.2` | Lower values keep reports reproducible. |
-
-Embeddings are computed in-process — no key, no network, no separate service.
-
-Application-level settings live under `incident-copilot` in `application.yml`:
-
-| Property | Default | Purpose |
-|---|---|---|
-| `system-prompt` | `classpath:/prompts/investigation-system.md` | The investigator's instructions. Edit the file, restart, no rebuild of Java. |
-| `knowledge-location` | `classpath:/knowledge/*.md` | Markdown indexed at startup. |
-| `top-k` | `5` | Knowledge chunks retrieved per investigation. |
-| `window-lookback` | `1h` | How far back a requested window is widened. |
-| `default-zone` | `Asia/Shanghai` | Zone for timestamps that carry no offset. |
-
-Machine-specific values belong in `src/main/resources/application-local.yml`, which is
-gitignored. Run it with `mvn spring-boot:run -Dspring-boot.run.profiles=local`.
-
-## Adding your own knowledge
-
-Drop Markdown files into `src/main/resources/knowledge/`. They are split on level-two
-headings, embedded, and indexed at startup. The vector store is in-memory, so the index
-is rebuilt on every launch and the directory is the single source of truth.
-
-## Adding your own scenario
-
-Each service the tools know about is a directory under `src/main/resources/fixtures/`
-holding `metrics.txt`, `logs.txt` and `changes.txt`. Two ship with the project:
-`checkout-service` (connection pool exhaustion) and `order-consumer` (Kafka lag from an
-unbounded cache). Adding a third is three text files — no code.
-
-The three files of a scenario must stay consistent with each other; see
-[fixtures/README.md](src/main/resources/fixtures/README.md) for why and how.
-
-## Design notes
-
-**Embeddings run in-process.** A remote chat API plus a local embedding model keeps
-setup to one environment variable. The model produces 384-dimensional vectors; changing
-it later means rebuilding the entire index, so the choice is fixed early.
-
-**Retrieval is explicit, not an advisor.** Calling the knowledge service directly costs a
-few more lines than wiring a retrieval advisor, but it keeps the matched documents in
-hand — which is what allows the report to cite them, and what will allow re-retrieval
-once the agent runs multiple rounds.
-
-**One class per data source.** Three tools returning fixed data would fit in a single
-class today, but each real source will bring its own client, credentials, and query
-language.
-
-**Runbooks are retrieved; service profiles are looked up.** What a pattern means
-generalises across services, so it lives in the knowledge base and is retrieved by
-similarity. What a specific service's fields mean does not generalise, and retrieval by
-symptom would not surface it reliably — so it is a tool keyed by service name. Letting the
-two overlap is not harmless: a profile that repeats runbook reasoning arrives as a tool
-result, outweighs the retrieved text, and the report quietly stops citing the runbook at
-all.
-
-**The trail is recorded, not reported.** Tools write to a request-scoped log as they
-run. The alternative — asking the model to list its own steps — produces a field that
-looks like evidence but is generated by the same process it is meant to check.
-
-**No persistence.** Investigations are not stored. Adding storage is additive and
-deliberately deferred.
+| What you want to do | Document |
+|---|---|
+| Configure a model, run the project, develop, and test | [Development and configuration](docs/en/development.md) |
+| Understand request flow, data sources, and design choices | [Architecture and design](docs/en/architecture.md) |
+| Look up request fields, response formats, and stream events | [API reference](docs/en/api.md) |
+| Add runbooks and sample data | [Extension guide](docs/en/extending.md) |
+| Check completed features and planned work | [Roadmap](docs/en/roadmap.md) |
 
 ## License
 
-MIT
+[MIT](LICENSE)

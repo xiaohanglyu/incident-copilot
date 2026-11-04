@@ -61,4 +61,4 @@ src/main/resources/application-local.yml
 models/
 
 # Documents
-docs/decisions/
+decisions/

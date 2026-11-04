@@ -2,277 +2,98 @@
 
 [English](README.md) · **简体中文**
 
-基于 Spring AI 的故障调查助手。用一句话描述线上现象，Agent 会自行调用只读诊断工具、
-检索本地知识库，输出一份结构化的判断供人审阅。
+incident-copilot 是一个 AI 故障排查助手，帮助不熟悉系统的值班工程师缩短故障定位时间，
+以降低平均恢复时间（MTTR）为目标。它查询指标、日志和近期变更，结合故障处理手册，
+给出可能的原因、相关证据和处理建议，由工程师决定后续操作。
 
-> v1 是一个自包含的 demo。诊断工具从 `resources/fixtures` 读取固定的样例数据，
-> 因此只需一个 API key 即可运行——不依赖数据库，也不依赖任何外部服务。
+## 为什么做这个项目
 
-## 它做什么
+在服务众多、跨团队轮值的环境里，值班工程师未必熟悉出问题的系统。
+排查往往要从了解服务、寻找监控、翻查日志和确认近期变更开始，再找有经验的同事核实。
+故障持续期间，业务仍在受影响。
 
-Agent 不会直接凭 prompt 回答，而是先去调查：
+这个项目希望把分散的数据和排查经验带到工程师面前，解决几个具体问题：
 
+- **缩短定位时间**：减少在多个系统之间查找、对照信息的时间，尽早找到有证据支持的故障原因，帮助恢复业务。
+- **减少对少数专家的依赖**：让不熟悉服务的工程师也能获得服务背景和排查方法，减少每次都要找资深同事协助的情况。
+- **复用排查经验**：通过知识库提供已有的处理手册，后续将已解决的故障经验沉淀下来，供轮班和新加入的工程师使用。
+
+企业使用这类工具，还需要考虑生产变更管控、调查记录能否审计，以及敏感数据如何处理。
+因此，项目围绕只读查询、人工审核、过程留痕和本地模型支持来设计。
+
+目前主要关注后端服务中的发布和配置问题、资源耗尽问题，例如接口变慢、数据库连接池耗尽、
+Kafka 消费积压。当前范围不包括基础设施故障诊断、自动修复和正式复盘报告生成。
+
+## 排查流程
+
+```text
+描述故障现象
+    ↓
+查询服务信息，确定排查对象
+    ↓
+收集监控指标、日志和近期变更，检索相关处理手册
+    ↓
+结合时间线和异常信号，分析可能的原因
+    ↓
+输出原因、证据、验证步骤和处理建议
+    ↓
+工程师核对并决定后续操作
 ```
-User: "kafka 消息堆积怎么回事"
-  │
-  ├─ listServices()       checkout-service, order-consumer
-  ├─ getMetrics()         堆积 180 → 120 万 · 堆内存 48% → 95% · CPU 反而下降
-  ├─ searchLogs()         OutOfMemoryError · 消费组反复 rebalance
-  ├─ getRecentChanges()   v4.2.0 引入了一个不淘汰的内存 Map
-  └─ 知识库                runbook：Kafka 消费积压
-  │
-  ▼
-报告  ─  最可能的原因 · 证据 · 验证建议 · 缓解建议
-  │
-  ▼
-人工审阅
-```
 
-提问没有指名服务，于是 Agent 先问自己能看哪些服务，挑出与现象匹配的那个，再去调查它。
-所有工具都是只读的，报告只是建议，不会自行执行任何操作。
+例如，输入「Kafka 消息为什么积压了？」，在自带的样例场景中可以查到：
 
-## 示例
+- **指标**：消费积压持续增加，内存使用率升高，Pod 反复重启。
+- **日志**：出现内存耗尽错误和消费者组重平衡。
+- **发布记录**：新版本引入了一个没有淘汰机制的内存缓存。
 
-打开 `http://localhost:8080` 是前端页面，中英双语；每次工具返回就实时出现在调查过程里，报告下方可以展开查看。
-也可以直接调接口：
+这些线索指向「缓存持续增长 → 内存耗尽 → 消费者重启 → 消息积压」这条故障链。
+报告会围绕这些证据说明可能的原因，并给出验证方法和回滚等缓解建议。
+排查过程中，网页会实时展示工具的查询结果，方便核对结论的依据。
+
+## 设计约束与当前进度
+
+- **只读查询**：工具只读取数据，不执行回滚、重启等生产操作；报告中的操作建议由人判断和执行。
+- **人工审核**：计划为建议增加明确的审批记录，目前尚未实现审批流程。
+- **过程留痕**：后端记录工具调用和返回结果，供工程师核对证据；持久化审计记录尚未实现。
+- **数据安全**：本地运行使用 Gemma，通过 OpenAI 兼容接口连接模型服务；数据脱敏尚未实现。
+  数据是否出域取决于实际的模型部署和接口配置。
+
+目前使用自带的两个演示场景：连接池耗尽和 Kafka 消费积压，尚未接入真实监控系统，
+也尚未通过评估验证定位效率或 MTTR 的改善。审批、审计和数据保护是后续建设目标，
+不能据此视为已满足企业的合规要求。后续计划见[路线图](docs/zh-CN/roadmap.md)。
+
+## 本地运行
+
+需要 JDK 25、Maven 和一个支持工具调用的模型服务。项目本地配置使用 Gemma
+（`gemma-4-26b-q4_k_m.gguf`）。
 
 ```bash
-curl -X POST localhost:8080/api/investigate \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "query": "checkout-service 响应时间突然变高",
-        "since": "2026-08-24T14:25:00+08:00",
-        "services": ["checkout-service"]
-      }'
+mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-只有 `query` 是必填的。`since` / `until` 和 `services` 本来就写在工单上——它们作为线索传入，
-不作为过滤条件。不填的话，Agent 会自己判断该查哪个服务、该拉多宽的时间窗。
+运行前，在 `src/main/resources/application-local.yml` 中配置模型服务的地址、模型名和认证信息。
+该文件是本机配置，不随 Git 提交；首次克隆需要自行创建，配置方式见[开发文档](docs/zh-CN/development.md)。
 
-`POST /api/investigate/stream` 接受同样的请求体，以 Server-Sent Events 返回，页面用的是它：
-先一次 `knowledge`，之后每个工具返回时推一条 `tool-call`，最后 `result` 带上完整响应——
-失败则是 `error`。`result` 里的调查过程才是准的，`tool-call` 的意义在于让人看着调查发生。
-断开连接即取消本次调查。
+打开 [localhost:8080](http://localhost:8080)，可以先试着问「Kafka 消息为什么积压了？」。
 
-```json
-{
-  "report": {
-    "mostLikelyCause": "连接池耗尽，起因是 v2025.8.19 在 OrderRepository.findRecentByCustomer
-                        中加了一个 join 并去掉了 LIMIT。",
-    "confidence": 0.95,
-    "evidence": [
-      { "source": "getMetrics",       "detail": "14:25 起 p99 从 118ms 升到 3.4s，连接池打满 50/50，CPU 与内存平稳" },
-      { "source": "searchLogs",       "detail": "14:26:03 起出现 HikariPool 连接超时" },
-      { "source": "getRecentChanges", "detail": "14:20 的发布改动了 OrderRepository.findRecentByCustomer" },
-      { "source": "knowledge",        "detail": "Runbook：延迟上升而 CPU 平稳、连接池打满，即连接池耗尽" }
-    ],
-    "suggestedVerification": ["检查被改动 SQL 的查询耗时"],
-    "suggestedMitigation": ["将 checkout-service 回滚到 v2025.8.18"]
-  },
-  "toolCalls": [
-    { "tool": "describeService", "arguments": "service=checkout-service", "millis": 1, "result": "…" },
-    { "tool": "getMetrics", "arguments": "service=checkout-service, from=2026-08-24T14:00:00+08:00, to=2026-08-24T15:00:00+08:00", "millis": 3, "result": "…" },
-    { "tool": "searchLogs", "arguments": "service=checkout-service, keyword=Connection is not available, from=…", "millis": 1, "result": "…" },
-    { "tool": "getRecentChanges", "arguments": "service=checkout-service", "millis": 1, "result": "…" }
-  ],
-  "retrievedKnowledge": [
-    { "source": "connection-pool-exhaustion.md", "content": "…" }
-  ]
-}
-```
+Maven 会自动安装 Node 并构建前端，首次启动还会下载 embedding 模型。
+排查数据来自 `src/main/resources/fixtures/`，不需要准备数据库或监控服务；
+模型请求会发送到配置的对话 API。
 
-`report` 是模型的结论。`toolCalls` 和 `retrievedKnowledge` 是实际发生的事，由服务端在工具
-执行时记录——因此读的人可以拿结论去对数据，而不必相信模型对自己行为的复述。
+模型服务使用 OpenAI 兼容协议，不要求使用 OpenAI 的模型。未启用 `local` 配置时，
+可通过 `OPENAI_BASE_URL`、`INCIDENT_COPILOT_MODEL` 和 `OPENAI_API_KEY` 指定服务。
+完整配置及受限网络下的启动方法见[开发文档](docs/zh-CN/development.md)。
 
-注意前两次调用。Agent 先查清楚 checkout-service 的字段含义再去读数据，然后拉了一个从 14:00
-开始的窗口——比给它的 14:25 更早，因为故障的原因总在症状之前。
+## 文档
 
-## 工作原理
-
-一次请求，三种机制：
-
-| | |
+| 想了解什么 | 文档 |
 |---|---|
-| **工具调用** | 由模型决定调用哪些工具、传什么参数、以什么顺序调用。工具是标注了 `@Tool` 的普通 Spring Bean。它会先查清某个服务的字段含义再读数据，并在调查过程中自行收窄或放宽时间窗。 |
-| **知识检索** | Runbook 在启动时写入向量库，检索由代码显式发起而非交给 advisor，命中的文档因此留在手里，可以在报告中引用。 |
-| **结构化输出** | 报告绑定到 Java record，多次运行的响应结构保持一致。 |
-
-有四个行为比看上去重要。
-
-**问到没有数据的服务时，工具会明说没有、并列出它有哪些**，而不是返回另一个服务的数据——
-否则模型会学到"返回的数据一定相关"，然后把它硬掰成问题的答案。
-
-**请求的时间窗会先向前扩再过滤。** 用户报告的时间是人注意到症状的时刻，而原因在更早。
-把 checkout 那次故障报成 14:25 开始，严格按字面取数就会把 14:20 那次发布挡在窗口外。
-
-**字段语义靠工具查，不靠推断。** 日志格式模型自己就能读——JSON 和 Logback 文本在训练数据里
-见过无数次。它猜不到的是"时间戳没有时区、按 Asia/Shanghai 读"，或者"`heap_used%` 是相对
-Pod 内存上限而非 `GOMEMLIMIT`"。格式读对、单位读错，是一种没有任何征兆的失败，所以
-`describeService` 是一次确定的工具调用，而不是一种指望。
-
-**调查步骤由工具在执行时记录，而不是事后由模型复述**——自报的过程和模型其余输出同源，
-拿它去核对模型自己，等于没核对。
-
-## 技术栈
-
-| | |
-|---|---|
-| Java 25 · Spring Boot 4.1 | 领域模型使用 record，工具并发调用可用虚拟线程 |
-| Spring AI 2.0 | 工具调用、结构化输出绑定、向量库抽象 |
-| OpenAI 兼容对话接口 | 任意网关均可，通过 URL 与 key 配置 |
-| all-MiniLM-L6-v2 / ONNX Runtime | 进程内计算 embedding，384 维 |
-| SimpleVectorStore | 内存索引，启动时重建 |
-| React 19 · TypeScript · Vite | 前端页面，strict 模式，构建进 jar |
-| Vitest · Playwright | 单元测试与端到端测试 |
-| Maven | 构建与依赖管理，含前端构建 |
-
-## 架构
-
-```
-dev.xiaohanglyu.incidentcopilot
-├── investigation    编排与领域模型 —— Report、Evidence、InvestigationResult
-├── tools            适配层，一个数据源一个类，外加调用日志
-├── knowledge        向量化、索引、检索
-└── shared           配置
-```
-
-```
-resources
-├── prompts/         system prompt，改它不用碰 Java
-├── knowledge/       runbook —— 某种现象组合意味着什么，跨服务通用（RAG）
-├── fixtures/        每个服务一个目录：样例数据，外加 profile.md ——
-│                    本服务的字段含义（按名字查表，不走检索）
-└── static/          构建产物 —— 由 `web/` 生成，不手工修改
-```
-
-```
-web                  React + TypeScript 前端
-├── src/api/         SSE 客户端，以及与 Java record 对应的类型
-├── src/components/  展示组件
-├── src/*.ts         reducer、请求构造、i18n —— 逻辑部分，有单元测试
-└── e2e/             针对构建产物的 Playwright 测试
-```
-
-依赖单向流动：`investigation → { tools, knowledge } → shared`。适配层不反向依赖编排层，
-因此接入新数据源是新增文件，而不是修改已有文件。
-
-## 快速开始
-
-需要 JDK 25、Maven，以及任意 OpenAI 兼容接口的 API key。
-
-```bash
-export OPENAI_API_KEY=sk-...
-mvn spring-boot:run
-```
-
-`mvn` 会一并构建前端：它在 `target/` 下装一份独立的 Node，执行 `npm ci && npm run build`，
-所以只需要 JDK 25 和 Maven。只改后端时可以加 `-Dskip.installnodenpm -Dskip.npm` 跳过。
-
-首次启动会从 GitHub 下载 embedding 模型（约 90 MB）并缓存到本地，之后启动不再等待。
-
-### 开发前端
-
-```bash
-mvn spring-boot:run                     # 后端跑在 :8080
-cd web && npm install && npm run dev    # 页面跑在 :5173，/api 代理到 :8080
-```
-
-```bash
-cd web
-npm test          # Vitest：SSE 解析、reducer、请求构造、页面行为
-npm run test:e2e  # Playwright：Chromium 里跑构建产物，模型响应为预置数据
-```
-
-### 受限网络
-
-如果访问不了 `raw.githubusercontent.com`（代理、防火墙或 TLS 劫持），启动会在加载
-embedding 模型时失败。改为从 Hugging Face 预先下载这两个文件：
-
-```bash
-mkdir -p models
-curl -Lo models/tokenizer.json \
-  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json
-curl -Lo models/model.onnx \
-  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx
-```
-
-国内网络可把域名换成 `hf-mirror.com`。然后让应用指向本地文件：
-
-```yaml
-spring:
-  ai:
-    embedding:
-      transformer:
-        onnx:
-          model-uri: file:./models/model.onnx
-        tokenizer:
-          uri: file:./models/tokenizer.json
-```
-
-`models/` 已在 gitignore 中。这样配置后启动完全不需要网络，唯一的对外流量就是对话 API。
-
-## 配置
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `OPENAI_API_KEY` | — | 必填。 |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | 可指向任意兼容网关。 |
-| `INCIDENT_COPILOT_MODEL` | `gpt-4o-mini` | 对话模型，需支持工具调用。 |
-| `INCIDENT_COPILOT_TEMPERATURE` | `0.2` | 取值越低，报告越稳定可复现。 |
-
-Embedding 在进程内计算 —— 不需要 key，不走网络，也不需要单独部署服务。
-
-应用层的配置在 `application.yml` 的 `incident-copilot` 下：
-
-| 配置项 | 默认值 | 说明 |
-|---|---|---|
-| `system-prompt` | `classpath:/prompts/investigation-system.md` | 调查员的指令。改文件、重启即可，不用重新编译 Java。 |
-| `knowledge-location` | `classpath:/knowledge/*.md` | 启动时索引的 Markdown。 |
-| `top-k` | `5` | 每次调查检索的知识片段数。 |
-| `window-lookback` | `1h` | 请求的时间窗向前扩多少。 |
-| `default-zone` | `Asia/Shanghai` | 不带时区的时间戳按哪个时区解释。 |
-
-机器相关的配置放 `src/main/resources/application-local.yml`，该文件已 gitignore。
-用 `mvn spring-boot:run -Dspring-boot.run.profiles=local` 启动即可生效。
-
-## 接入你自己的知识
-
-把 Markdown 文件放进 `src/main/resources/knowledge/`，启动时会按二级标题切分、向量化并建立
-索引。向量库是内存实现，每次启动重建索引，因此该目录就是唯一的数据来源。
-
-## 添加你自己的场景
-
-工具能看到的每个服务，对应 `src/main/resources/fixtures/` 下的一个目录，内含
-`metrics.txt`、`logs.txt` 和 `changes.txt`。项目自带两个场景：`checkout-service`
-（连接池耗尽）和 `order-consumer`（无界缓存导致的 Kafka 积压）。加第三个只需三个文本文件，
-不用写代码。
-
-同一场景的三个文件必须互相咬合，原因和做法见
-[fixtures/README.md](src/main/resources/fixtures/README.md)。
-
-## 设计说明
-
-**Embedding 放在进程内。** 远程对话 API 搭配本地 embedding 模型，使得部署成本只有一个
-环境变量。模型输出 384 维向量；后续更换会导致整个索引重建，因此这个选择需要尽早固定。
-
-**检索由代码显式发起，而非交给 advisor。** 直接调用知识服务比挂一个检索 advisor 多写几行，
-但换来的是命中文档留在手里 —— 这既是报告能够引用来源的前提，也是将来 Agent 多轮调查时
-按假设重新检索的前提。
-
-**一个数据源一个类。** 三个返回固定数据的工具今天完全塞得进一个类，但每个真实数据源都会
-带来各自的客户端、凭证与查询语言。
-
-**Runbook 靠检索，服务画像靠查表。** "某种现象组合意味着什么"是跨服务通用的，所以放知识库、
-按相似度检索；"这个服务的字段是什么单位"不通用，而且提问描述的是症状、按症状检索也捞不到它，
-所以做成按服务名查表的工具。两者内容重叠不是无害的：画像作为工具返回值出现，权重压过被拼进
-提示词的检索结果，报告会悄悄不再引用 runbook——这个回退在开发过程中真实发生过一次。
-
-**调查过程是记录出来的，不是复述出来的。** 工具在执行时写入一个请求作用域的日志。另一种
-做法是让模型自己列出走过的步骤——那会得到一个看起来像证据、实际由它自己生成的字段，而它
-本该被用来核对的正是这个模型。
-
-**不做持久化。** 调查结果不落库。存储是可增量添加的能力，此处刻意推后。
+| 配置模型、运行项目、开发和测试 | [开发与配置](docs/zh-CN/development.md) |
+| 请求如何执行、数据从哪里来、为什么这样设计 | [架构与设计](docs/zh-CN/architecture.md) |
+| 请求参数、响应格式和流式事件 | [API 参考](docs/zh-CN/api.md) |
+| 添加处理手册和样例数据 | [扩展指南](docs/zh-CN/extending.md) |
+| 已完成的能力与后续安排 | [路线图](docs/zh-CN/roadmap.md) |
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)

@@ -69,6 +69,14 @@ class FixtureLoader {
      * @param to   end of the window, or null for open-ended.
      */
     String load(String service, String filename, Instant from, Instant to) {
+        return load(service, filename, from, to, null);
+    }
+
+    /**
+     * @param keyword kept entries must contain this, case-insensitively and ignoring how
+     *                whitespace is wrapped; null or blank keeps everything in the window.
+     */
+    String load(String service, String filename, Instant from, Instant to, String keyword) {
         Optional<String> resolved = resolve(service);
         if (resolved.isEmpty()) {
             return "No data available for service '%s'. Known services: %s."
@@ -76,26 +84,84 @@ class FixtureLoader {
         }
 
         String body = read(resolved.get(), filename);
-        if (from == null && to == null) {
-            return body;
-        }
-
+        boolean windowed = from != null || to != null;
         Instant widened = from == null ? null : from.minus(properties.windowLookback());
-        String filtered = filter(body, widened, to);
 
-        if (filtered == null) {
+        String inWindow = windowed ? filter(body, widened, to) : body;
+        if (inWindow == null) {
             return """
                     No data for %s between %s and %s.
                     Available window: %s.
                     """.formatted(resolved.get(), display(widened), display(to),
                     availableWindow(body));
         }
+
+        String result = inWindow;
+        String needle = normalize(keyword);
+        if (needle != null) {
+            result = matching(inWindow, needle);
+            if (result == null) {
+                // Say there is data, or an over-specific keyword reads as "no errors".
+                return """
+                        No entries for %s%s contain "%s", but there are entries without it.
+                        Try a broader keyword, or omit it to read them all.
+                        """.formatted(resolved.get(), windowed
+                        ? " between %s and %s".formatted(display(widened), display(to))
+                        : "", keyword.strip());
+            }
+        }
+
+        if (!windowed) {
+            return result;
+        }
         return """
                 Window: %s to %s (widened back by %s from the reported onset, because the
                 cause of an incident precedes the symptom).
 
                 %s""".formatted(display(widened), display(to),
-                properties.windowLookback(), filtered);
+                properties.windowLookback(), result);
+    }
+
+    /**
+     * Keeps the header, the summary and every entry containing {@code needle}. An entry is
+     * a timestamped line plus its continuation lines, matched as one: a Logback message
+     * wrapped across lines must still match a keyword that spans the wrap. The summary is
+     * whatever follows the first blank line after the entries. Returns null when no entry
+     * matches.
+     */
+    private String matching(String body, String needle) {
+        List<String> header = new ArrayList<>();
+        List<List<String>> entries = new ArrayList<>();
+        List<String> summary = new ArrayList<>();
+        for (String line : body.split("\n", -1)) {
+            if (!summary.isEmpty() || (line.isBlank() && !entries.isEmpty())) {
+                summary.add(line);
+            } else if (timestampOf(line).isPresent()) {
+                entries.add(new ArrayList<>(List.of(line)));
+            } else if (entries.isEmpty()) {
+                header.add(line);
+            } else {
+                entries.getLast().add(line);
+            }
+        }
+
+        List<String> kept = new ArrayList<>(header);
+        boolean keptAny = false;
+        for (List<String> entry : entries) {
+            if (normalize(String.join(" ", entry)).contains(needle)) {
+                kept.addAll(entry);
+                keptAny = true;
+            }
+        }
+        kept.addAll(summary);
+        return keptAny ? String.join("\n", kept) : null;
+    }
+
+    private static String normalize(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        return text.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     /** Returns null when the window excludes every timestamped line. */

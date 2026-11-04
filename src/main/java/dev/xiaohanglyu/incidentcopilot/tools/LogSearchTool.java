@@ -26,14 +26,16 @@ public class LogSearchTool {
             + "timezone differ per service — call describeService first.")
     public String searchLogs(
             @ToolParam(description = "Service name, e.g. checkout-service") String service,
-            @ToolParam(description = "Keyword to match, e.g. timeout") String keyword,
+            @ToolParam(description = "Case-insensitive text each entry must contain, e.g. "
+                    + "timeout. Omit to read every entry in the window.",
+                    required = false) String keyword,
             @ToolParam(description = "Window start, ISO 8601, e.g. 2026-08-24T00:00:00+08:00. "
                     + "Omit for all available data.", required = false) String fromTime,
             @ToolParam(description = "Window end, ISO 8601. Omit for open-ended.",
                     required = false) String toTime) {
         long started = System.currentTimeMillis();
         String result = fixtures.load(service, "logs.txt",
-                window.parse(fromTime), window.parse(toTime));
+                window.parse(fromTime), window.parse(toTime), keyword);
         log.record("searchLogs",
                 window.describe("service=%s, keyword=%s".formatted(service, keyword),
                         fromTime, toTime),
