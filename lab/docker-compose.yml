@@ -1,0 +1,66 @@
+# Fault lab: payment-service + PostgreSQL + Prometheus + steady traffic.
+# Scenarios in scenarios/ drive it; see README.md. A "deploy" is
+#   LAB_VERSION=v1.4.0 LAB_FAULTS=slow-query docker compose up -d payment-service
+# which recreates the container, so the restart shows up in the telemetry like a rollout.
+name: fault-lab
+
+services:
+  postgres:
+    image: postgres:17.2
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: payments
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments -d payments"]
+      interval: 2s
+      retries: 30
+
+  payment-service:
+    build: ./demo-service
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/payments
+      LAB_VERSION: ${LAB_VERSION:-v1.3.0}
+      LAB_FAULTS: ${LAB_FAULTS:-}
+      LOG_FILE: /var/log/payment-service/app.log
+      TZ: Asia/Shanghai
+      # Fixed heap so UNBOUNDED_CACHE fills it in minutes, not hours. G1 named explicitly:
+      # under 2 CPUs / 1792MB the JVM would silently pick SerialGC.
+      JAVA_OPTS: -Xms256m -Xmx256m -XX:+UseG1GC
+    volumes:
+      - ${RUN_DIR:-./out/dev}:/var/log/payment-service
+    ports:
+      - "18080:8080"
+      - "18081:8081"   # actuator (health, prometheus)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 768m
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+
+  load:
+    image: grafana/k6:0.56.0
+    command: ["run", "--quiet", "/scripts/traffic.js"]
+    environment:
+      BASE_URL: http://payment-service:8080
+    volumes:
+      - ./load:/scripts:ro
+    depends_on:
+      - payment-service
+
+volumes:
+  pgdata:
+  promdata:

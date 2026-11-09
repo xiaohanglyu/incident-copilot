@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: payment-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/payments}
+    username: ${DB_USER:payments}
+    password: ${DB_PASSWORD:payments}
+    hikari:
+      maximum-pool-size: 20
+      # HikariCP's default. Kept long on purpose: a caller waiting 30s is what a real
+      # exhausted pool looks like, and it is what turns slowness into timeouts.
+      connection-timeout: 30000
+      # Logs "Connection leak detection triggered" with the borrowing stack trace. Real
+      # services often have this on; without it a leak only shows as a full pool.
+      leak-detection-threshold: 60000
+  sql:
+    init:
+      mode: always
+
+server:
+  tomcat:
+    threads:
+      max: 200
+
+lab:
+  version: ${LAB_VERSION:dev}
+  faults: ${LAB_FAULTS:}
+
+management:
+  # Own port, own threads. When every request thread is stuck waiting for a connection,
+  # a scrape on the main port queues behind them and times out, and the incident shows
+  # up as a gap instead of as a full pool.
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: payment-service
+    distribution:
+      # Buckets let Prometheus compute p50/p99 with histogram_quantile.
+      percentiles-histogram:
+        http.server.requests: true
+
+logging:
+  file:
+    name: ${LOG_FILE:logs/app.log}
+  logback:
+    rollingpolicy:
+      # One file per run: the exporter reads it whole, restarts included.
+      max-file-size: 2GB

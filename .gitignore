@@ -26,6 +26,7 @@ replay_pid*
 
 # Claude Code
 .claude/settings.local.json
+.claude/settings.json
 .claude/plans/
 CLAUDE.local.md
 
@@ -62,3 +63,6 @@ models/
 
 # Documents
 decisions/
+
+# Fault lab runs (logs and exports; copy what you keep into fixtures)
+lab/out/
